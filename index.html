@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BolaTV Player</title>
+  <style>
+    body { background:#111; color:#fff; font-family:sans-serif; text-align:center; margin:0; padding:20px; }
+    video { width:90%; max-width:800px; margin-top:20px; border-radius:12px; }
+    input { width:80%; padding:10px; border-radius:8px; border:none; margin-top:20px; }
+    button { padding:10px 20px; margin-top:10px; border:none; border-radius:8px; background:#0a84ff; color:white; font-size:16px; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h1>⚽ BolaTV IPTV Player</h1>
+  <input id="url" type="text" placeholder="Masukkan link M3U / Stream URL" value="https://bolatv.rocket-ott.shop/0137463263/playlist.m3u" />
+  <button onclick="loadStream()">Mainkan</button>
+  <br>
+  <video id="player" controls></video>
+
+  <script>
+    async function loadStream() {
+      const url = document.getElementById('url').value;
+      const video = document.getElementById('player');
+      if (Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        video.play();
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.play();
+      } else {
+        alert('Browser ini tidak menyokong HLS (.m3u8).');
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</body>
+</html>
