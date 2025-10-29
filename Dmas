@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IPTV Player (Tizen-friendly)</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Noto Sans',sans-serif}
+    body{margin:0;background:#0f1720;color:#e6eef8;display:flex;flex-direction:column;height:100vh}
+    header{padding:12px 16px;background:linear-gradient(90deg,#0b1220,#122133);display:flex;gap:12px;align-items:center}
+    h1{font-size:18px;margin:0}
+    .controls{margin-left:auto;display:flex;gap:8px;align-items:center}
+    main{display:flex;flex:1;gap:12px;padding:12px}
+    .left{width:360px;max-width:40%;min-width:260px;background:#071022;border-radius:8px;padding:10px;overflow:auto}
+    .search{display:flex;gap:8px;margin-bottom:8px}
+    input[type=text]{flex:1;padding:8px;border-radius:6px;border:1px solid #233445;background:#081826;color:#e6eef8}
+    button{padding:8px 10px;border-radius:6px;border:0;background:#1f6feb;color:white;cursor:pointer}
+    ul.playlist{list-style:none;padding:0;margin:0}
+    li.channel{padding:8px;border-radius:6px;margin-bottom:6px;background:#021427;cursor:pointer}
+    li.channel:hover{background:#0b2b45}
+    .meta{font-size:12px;color:#9fb6cf}
+    .player-wrap{flex:1;display:flex;flex-direction:column;gap:8px}
+    .video-box{background:#000;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+    video, audio{width:100%;height:100%;max-height:60vh;background:#000}
+    .now{padding:6px 8px;background:#071428;border-radius:6px}
+    footer{padding:8px 12px;font-size:13px;color:#9fb6cf;background:#071622}
+    @media(max-width:800px){main{flex-direction:column}.left{width:100%;max-width:100%}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>IPTV Player — Tizen friendly</h1>
+    <div class="controls">
+      <div style="font-size:13px;color:#9fb6cf">Playlist URL</div>
+      <input id="playlistUrl" type="text" value="https://bolatv.rocket-ott.shop/0137463263/playlist.m3u" style="width:420px;min-width:220px;padding:8px;border-radius:6px;border:1px solid #233445;background:#081826;color:#e6eef8" />
+      <button id="loadBtn">Muat</button>
+    </div>
+  </header>
+
+  <main>
+    <aside class="left">
+      <div class="search">
+        <input id="filter" type="text" placeholder="Cari channel (contoh: RTM, Astro)" />
+        <button id="refreshBtn">Refresh</button>
+      </div>
+      <div class="now" id="status">Sila muat playlist...</div>
+      <ul class="playlist" id="playlist"></ul>
+    </aside>
+
+    <section class="player-wrap">
+      <div class="video-box">
+        <video id="player" controls crossorigin="anonymous" playsinline></video>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div style="flex:1"><strong id="title">Tiada siaran dimainkan</strong><div id="sub" style="font-size:12px;color:#9fb6cf"></div></div>
+        <div style="display:flex;gap:8px">
+          <button id="fullscreenBtn">Full</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Tips: Jika sesetengah channel tak main, cuba buka melalui VLC di telefon/PC. Sesetengah stream memerlukan CORS atau token dari server provider.
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.5/dist/hls.min.js"></script>
+  <script>
+    // Simple M3U parser (supports EXTINF and group-title)
+    function parseM3U(text){
+      const lines = text.split(/\r?\n/).map(l=>l.trim());
+      const items = [];
+      let current = null;
+      for(const l of lines){
+        if(!l) continue;
+        if(l.startsWith('#EXTINF')){
+          // #EXTINF:-1 tvg-id="" tvg-name="" tvg-logo="" group-title="" ,Channel Name
+          const meta = {};
+          const rest = l.substring(8);
+          const commaIdx = rest.indexOf(',');
+          let info = rest;
+          if(commaIdx>-1){ info = rest.substring(0,commaIdx); meta.name = rest.substring(commaIdx+1).trim(); }
+          // parse key="value"
+          const r = /([a-zA-Z0-9-]+)="([^\"]*)"/g;
+          let m;
+          while((m=r.exec(info))!==null){ meta[m[1]] = m[2]; }
+          current = meta;
+        } else if(!l.startsWith('#')){
+          if(current==null){ current = {name:l}; }
+          current.url = l;
+          items.push(current);
+          current = null;
+        }
+      }
+      return items;
+    }
+
+    const playlistEl = document.getElementById('playlist');
+    const statusEl = document.getElementById('status');
+    const player = document.getElementById('player');
+    const titleEl = document.getElementById('title');
+    const subEl = document.getElementById('sub');
+    const loadBtn = document.getElementById('loadBtn');
+    const playlistUrl = document.getElementById('playlistUrl');
+    const filter = document.getElementById('filter');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+    let channels = [];
+
+    async function loadPlaylist(url){
+      try{
+        statusEl.textContent = 'Memuat playlist...';
+        const res = await fetch(url);
+        if(!res.ok) throw new Error('Gagal ambil playlist: ' + res.status);
+        const text = await res.text();
+        channels = parseM3U(text);
+        statusEl.textContent = `Ditemui ${channels.length} channel`;
+        renderList(channels);
+      } catch(err){
+        statusEl.textContent = 'Ralat: ' + err.message;
+        playlistEl.innerHTML = '';
+      }
+    }
+
+    function renderList(list){
+      playlistEl.innerHTML = '';
+      for(const ch of list){
+        const li = document.createElement('li');
+        li.className = 'channel';
+        const name = ch.name || ch.tvg-name || ch['tvg-name'] || 'No name';
+        const group = ch['group-title'] || ch.group || '';
+        li.innerHTML = `<div><strong>${escapeHtml(name)}</strong></div><div class="meta">${escapeHtml(group)} — ${escapeHtml(ch.url)}</div>`;
+        li.onclick = ()=> playChannel(ch);
+        playlistEl.appendChild(li);
+      }
+    }
+
+    function escapeHtml(s){ return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    function playChannel(ch){
+      const url = ch.url;
+      titleEl.textContent = ch.name || url;
+      subEl.textContent = url;
+
+      // If HLS (m3u8) and browser doesn't support native HLS, use hls.js
+      const isHls = url.includes('.m3u8') || url.includes('.m3u');
+      if(Hls.isSupported() && url.includes('.m3u8')){
+        if(window.hlsInstance){ window.hlsInstance.destroy(); window.hlsInstance = null; }
+        const hls = new Hls();
+        window.hlsInstance = hls;
+        hls.loadSource(url);
+        hls.attachMedia(player);
+        hls.on(Hls.Events.MANIFEST_PARSED, function() { player.play().catch(()=>{}); });
+      } else {
+        // try set src directly
+        try{
+          if(window.hlsInstance){ window.hlsInstance.destroy(); window.hlsInstance = null; }
+          player.src = url;
+          player.play().catch(()=>{});
+        }catch(e){
+          statusEl.textContent = 'Gagal main: ' + e.message;
+        }
+      }
+    }
+
+    loadBtn.onclick = ()=> loadPlaylist(playlistUrl.value.trim());
+    refreshBtn.onclick = ()=> loadPlaylist(playlistUrl.value.trim());
+
+    filter.addEventListener('input', ()=>{
+      const q = filter.value.trim().toLowerCase();
+      renderList(channels.filter(c=> (c.name||'').toLowerCase().includes(q) || (c['group-title']||'').toLowerCase().includes(q) ));
+    });
+
+    fullscreenBtn.onclick = ()=>{
+      if(document.fullscreenElement){ document.exitFullscreen(); }
+      else{ document.documentElement.requestFullscreen().catch(()=>{}); }
+    };
+
+    // Auto-load default on open
+    (function(){ const def = playlistUrl.value.trim(); if(def) loadPlaylist(def); })();
+  </script>
+</body>
+</html>
